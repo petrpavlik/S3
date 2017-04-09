@@ -133,16 +133,13 @@ public class S3 {
      - accessControl: Access control list value (default .privateAccess)
      */
     public func put(data: Data, filePath: String, bucketName: String, headers: [String: String], accessControl: AccessControlList = .privateAccess) throws {
-        let fileUrl: URL? = try self.buildUrl(bucketName: bucketName, fileName: filePath)
-        guard let url = fileUrl else {
-            throw Error.invalidUrl
-        }
+        let fileUrl = try self.buildUrl(bucketName: bucketName, fileName: filePath)
         
         let bytes: Bytes = try data.makeBytes()
         var awsHeaders: [String: String] = headers
         awsHeaders["x-amz-acl"] = accessControl.rawValue
-        let signingHeaders: [String: String] = try signer.authHeaderV4(httpMethod: .put, urlString: url.absoluteString, headers: awsHeaders, payload: .bytes(bytes))
-        let result: Response = try BasicClient.put(fileUrl!.absoluteString, headers: self.vaporHeaders(signingHeaders), query: [:], body: Body(bytes))
+        let signingHeaders: [String: String] = try signer.authHeaderV4(httpMethod: .put, urlString: fileUrl.absoluteString, headers: awsHeaders, payload: .bytes(bytes))
+        let result: Response = try BasicClient.put(fileUrl.absoluteString, headers: self.vaporHeaders(signingHeaders), query: [:], body: Body(bytes))
         
         guard result.status == .ok else {
             throw Error.badResponse(result)
@@ -201,14 +198,10 @@ public class S3 {
      - Returns: File data
      */
     public func get(fileAtPath filePath: String, bucketName: String? = nil) throws -> Data {
-        let fileUrl: URL? = try self.buildUrl(bucketName: bucketName, fileName: filePath)
+        let fileUrl = try self.buildUrl(bucketName: bucketName, fileName: filePath)
         
-        guard let url = fileUrl else {
-            throw Error.invalidUrl
-        }
-        
-        let headers: [String: String] = try signer.authHeaderV4(httpMethod: .get, urlString: url.absoluteString, headers: [:], payload: .none)
-        let result: Response = try BasicClient.get(fileUrl!.absoluteString, headers: self.vaporHeaders(headers))
+        let headers: [String: String] = try signer.authHeaderV4(httpMethod: .get, urlString: fileUrl.absoluteString, headers: [:], payload: .none)
+        let result: Response = try BasicClient.get(fileUrl.absoluteString, headers: self.vaporHeaders(headers))
         
         if result.status == .notFound {
             throw Error.notFound
@@ -235,14 +228,11 @@ public class S3 {
      - bucketName: Name of the bucket to be used (global bucket value will be ignored, optional)
      */
     public func delete(fileAtPath filePath: String, bucketName: String? = nil) throws {
-        let fileUrl: URL? = try self.buildUrl(bucketName: bucketName, fileName: filePath)
-        guard let url = fileUrl else {
-            throw Error.invalidUrl
-        }
+        let fileUrl = try self.buildUrl(bucketName: bucketName, fileName: filePath)
         
-        let headers: [String: String] = try signer.authHeaderV4(httpMethod: .delete, urlString: url.absoluteString, headers: [:], payload: .none)
+        let headers: [String: String] = try signer.authHeaderV4(httpMethod: .delete, urlString: fileUrl.absoluteString, headers: [:], payload: .none)
         
-        let result: Response = try BasicClient.delete(fileUrl!.absoluteString, headers: self.vaporHeaders(headers), query: [:], body: Body(""))
+        let result: Response = try BasicClient.delete(fileUrl.absoluteString, headers: self.vaporHeaders(headers), query: [:], body: Body(""))
         
         guard result.status == .noContent || result.status == .ok else {
             throw Error.badResponse(result)
@@ -271,16 +261,20 @@ internal extension S3 {
         return vaporHeaders
     }
     
-    internal func buildUrl(bucketName: String?, fileName: String) throws -> URL? {
-        var bucket: String? = bucketName
-        if bucket == nil {
-            bucket = self.bucketName
-        }
-        guard bucket != nil else {
-            throw Error.missingBucketName
-        }
+    internal func buildUrl(bucketName: String?, fileName: String) throws -> URL {
+        let bucket: String = try {
+            if let bucketName = bucketName {
+                return bucketName
+            } else if let bucketName = self.bucketName {
+                return bucketName
+            } else {
+                throw Error.missingBucketName
+            }
+        }()
         
-        var url: URL = URL(string: "https://\(bucket!).s3.amazonaws.com")!
+        guard var url: URL = URL(string: "https://\(bucket).s3.amazonaws.com") else {
+            throw Error.invalidUrl
+        }
         url.appendPathComponent(fileName)
         return url
     }
