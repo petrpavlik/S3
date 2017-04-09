@@ -7,7 +7,7 @@
 //
 
 import Foundation
-
+import HTTP
 
 /**
  Helper S3 extension for uploading files by their URL/path
@@ -24,7 +24,11 @@ public extension S3 {
      - accessControl: Access control list value (default .privateAccess)
      */
     public func put(fileAtUrl url: URL, filePath: String, bucketName: String, accessControl: AccessControlList = .privateAccess) throws {
-        let data: Data = try Data.init(contentsOf: url)
+        let fetchFileResponse = try BasicClient.get(url.absoluteString).makeResponse()
+        guard let bytes = fetchFileResponse.body.bytes else {
+            throw Error.badResponse(fetchFileResponse)
+        }
+        let data: Data = Data(bytes: bytes)
         var headers: [String: String] = [:]
         headers["Content-Type"] = self.mimeType(forFileAtUrl: url)
         try self.put(data: data, filePath: filePath, bucketName: bucketName, headers: headers, accessControl: accessControl)
